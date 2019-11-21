@@ -58,7 +58,7 @@ class DomainTests: CoreDataTestCase {
         
         XCTAssertEqual(domain.bookmarks?.count, 0)
         XCTAssertEqual(domain.historyItems?.count, 0)
-        XCTAssertEqual(domain.url, url.domainURL.absoluteString)
+        XCTAssertEqual(domain.url, url.domainURL().absoluteString)
     }
     
     /// Tests non-HTTPSE shields
@@ -87,6 +87,7 @@ class DomainTests: CoreDataTestCase {
             Domain.setBraveShield(forUrl: url2HTTPS, shield: .AdblockAndTp, isOn: true, isPrivateBrowsing: false)
         }
         
+        domain.managedObjectContext?.refreshAllObjects()
         XCTAssertTrue(domain.isShieldExpected(BraveShield.SafeBrowsing))
         XCTAssertTrue(domain.isShieldExpected(BraveShield.AdblockAndTp))
     }

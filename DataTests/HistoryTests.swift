@@ -68,10 +68,8 @@ class HistoryTests: CoreDataTestCase {
         
         _ = createAndWait(title: title, url: url)
         
-        DataController.perform { context in
-            XCTAssertNil(History.getExisting(wrongUrl, context: context))
-            XCTAssertNotNil(History.getExisting(url, context: context))
-        }
+        XCTAssertNil(History.getExisting(wrongUrl, context: DataController.viewContext))
+        XCTAssertNotNil(History.getExisting(url, context: DataController.viewContext))
     }
     
     func testRemove() {
@@ -131,4 +129,16 @@ class HistoryTests: CoreDataTestCase {
         
         return History.first(where: predicate)!
     }
+    
+    @discardableResult
+     private func createAndWait(title: String = "New title", url: URL = URL(string: "https://example.com")!) -> ReadList {
+         backgroundSaveAndWaitForExpectation {
+             ReadList.add(title, url: url)
+         }
+         
+         let urlKeyPath = #keyPath(History.url)
+         let predicate = NSPredicate(format: "\(urlKeyPath) == %@", url.absoluteString)
+         
+         return ReadList.first(where: predicate)!
+     }
 }

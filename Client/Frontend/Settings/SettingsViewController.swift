@@ -11,6 +11,8 @@ import LocalAuthentication
 import SwiftyJSON
 import Data
 import WebKit
+import BraveRewards
+import BraveRewardsUI
 
 extension TabBarVisibility: RepresentableOptionType {
     public var displayString: String {
@@ -20,39 +22,6 @@ extension TabBarVisibility: RepresentableOptionType {
         case .never: return Strings.Never_show
         }
     }
-}
-
-/// The same style switch accessory view as in Static framework, except will not be recreated each time the Cell
-/// is configured, since it will be stored as is in `Row.Accessory.view`
-private class SwitchAccessoryView: UISwitch {
-    typealias ValueChange = (Bool) -> Void
-    
-    init(initialValue: Bool, valueChange: (ValueChange)? = nil) {
-        self.valueChange = valueChange
-        super.init(frame: .zero)
-        isOn = initialValue
-        addTarget(self, action: #selector(valueChanged), for: .valueChanged)
-    }
-    
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    var valueChange: ValueChange?
-    
-    @objc func valueChanged() {
-        valueChange?(self.isOn)
-    }
-}
-
-/// Just creates a switch toggle `Row` which updates a `Preferences.Option<Bool>`
-private func BoolRow(title: String, option: Preferences.Option<Bool>, onValueChange: SwitchAccessoryView.ValueChange? = nil) -> Row {
-    return Row(
-        text: title,
-        accessory: .view(SwitchAccessoryView(initialValue: option.value, valueChange: onValueChange ?? { option.value = $0 })),
-        cellClass: MultilineValue1Cell.self,
-        uuid: option.key
-    )
 }
 
 extension DataSource {
@@ -80,10 +49,12 @@ class SettingsViewController: TableViewController {
     
     private let profile: Profile
     private let tabManager: TabManager
+    private let rewards: BraveRewards?
     
-    init(profile: Profile, tabManager: TabManager) {
+    init(profile: Profile, tabManager: TabManager, rewards: BraveRewards? = nil) {
         self.profile = profile
         self.tabManager = tabManager
+        self.rewards = rewards
         
         super.init(style: .grouped)
     }
@@ -94,11 +65,19 @@ class SettingsViewController: TableViewController {
     }
     
     override func viewDidLoad() {
+        super.viewDidLoad()
+        
         navigationItem.title = Strings.Settings
         tableView.accessibilityIdentifier = "SettingsViewController.tableView"
         dataSource.sections = sections
         
         applyTheme(theme)
+    }
+    
+    private func displayRewardsDebugMenu() {
+        guard let rewards = rewards else { return }
+        let settings = QASettingsViewController(rewards: rewards)
+        navigationController?.pushViewController(settings, animated: true)
     }
     
     private var theme: Theme {
@@ -110,7 +89,7 @@ class SettingsViewController: TableViewController {
         list.append(generalSection)
         list.append(displaySection)
         #if !NO_SYNC
-            list.append(syncSection)
+            list.append(otherSettingsSection)
         #endif
         list.append(contentsOf: [privacySection,
                                  securitySection,
@@ -138,7 +117,7 @@ class SettingsViewController: TableViewController {
                     self.navigationController?.pushViewController(viewController, animated: true)
                 }, accessory: .disclosureIndicator, cellClass: MultilineValue1Cell.self),
                 BoolRow(title: Strings.Save_Logins, option: Preferences.General.saveLogins),
-                BoolRow(title: Strings.Block_Popups, option: Preferences.General.blockPopups),
+                BoolRow(title: Strings.Block_Popups, option: Preferences.General.blockPopups)
             ]
         )
         
@@ -191,7 +170,7 @@ class SettingsViewController: TableViewController {
                 let optionsViewController = OptionSelectionViewController<TabBarVisibility>(
                     options: TabBarVisibility.allCases,
                     selectedOption: TabBarVisibility(rawValue: Preferences.General.tabBarVisibility.value),
-                    optionChanged: { [unowned self] _, option in
+                    optionChanged: { _, option in
                         Preferences.General.tabBarVisibility.value = option.rawValue
                         reloadCell(row, option.displayString)
                     }
@@ -206,44 +185,45 @@ class SettingsViewController: TableViewController {
             BoolRow(title: Strings.Show_Bookmark_Button_In_Top_Toolbar, option: Preferences.General.showBookmarkToolbarShortcut)
         )
         
-        #if !NO_REWARDS
-        display.rows.append({
-            var row = BoolRow(title: Strings.HideRewardsIcon, option: Preferences.Rewards.hideRewardsIcon)
-            row.detailText = Strings.HideRewardsIconSubtitle
-            row.cellClass = MultilineSubtitleCell.self
-            return row
-        }())
-        #endif
-        
         return display
     }()
     
-    private lazy var syncSection: Section = {
-        
-        return Section(
-            // BRAVE TODO: Change it once we finalize our decision how to name the section.(#385)
-            header: .title(Strings.OtherSettingsSection),
-            rows: [
-                Row(text: Strings.Sync, selection: { [unowned self] in
-                    
-                    if Sync.shared.isInSyncGroup {
-                        let syncSettingsVC = SyncSettingsTableViewController(style: .grouped)
-                        syncSettingsVC.dismissHandler = {
-                            self.navigationController?.popToRootViewController(animated: true)
-                        }
-                        
-                        self.navigationController?.pushViewController(syncSettingsVC, animated: true)
-                    } else {
-                        let view = SyncWelcomeViewController()
-                        view.dismissHandler = {
-                            view.navigationController?.popToRootViewController(animated: true)
-                        }
-                        self.navigationController?.pushViewController(view, animated: true)
-                    }
-                }, accessory: .disclosureIndicator,
-                   cellClass: MultilineValue1Cell.self)
+    private lazy var otherSettingsSection: Section = {
+        // BRAVE TODO: Change it once we finalize our decision how to name the section.(#385)
+        var section = Section(header: .title(Strings.OtherSettingsSection))
+        #if !NO_REWARDS
+        if let rewards = rewards {
+            section.rows += [
+                Row(text: Strings.BraveRewardsTitle, selection: { [unowned self] in
+                    let rewardsVC = BraveRewardsSettingsViewController(rewards)
+                    self.navigationController?.pushViewController(rewardsVC, animated: true)
+                }, accessory: .disclosureIndicator),
             ]
-        )
+        }
+        #endif
+        section.rows += [
+            Row(text: Strings.Sync, selection: { [unowned self] in
+                if Sync.shared.isInSyncGroup {
+                    let syncSettingsVC = SyncSettingsTableViewController(style: .grouped)
+                    syncSettingsVC.dismissHandler = {
+                        self.navigationController?.popToRootViewController(animated: true)
+                    }
+                    
+                    self.navigationController?.pushViewController(syncSettingsVC, animated: true)
+                } else {
+                    let view = SyncWelcomeViewController()
+                    view.dismissHandler = {
+                        view.navigationController?.popToRootViewController(animated: true)
+                    }
+                    self.navigationController?.pushViewController(view, animated: true)
+                }
+                }, accessory: .disclosureIndicator,
+                   cellClass: MultilineValue1Cell.self),
+            
+            //Disabled until 1.13
+            //BoolRow(title: Strings.Media_Auto_Plays, option: Preferences.General.mediaAutoPlays)
+        ]
+        return section
     }()
     
     private lazy var privacySection: Section = {
@@ -449,6 +429,9 @@ class SettingsViewController: TableViewController {
                     self.navigationController?.pushViewController(UrpLogsViewController(), animated: true)
                 }, accessory: .disclosureIndicator, cellClass: MultilineValue1Cell.self),
                 Row(text: "URP Code: \(UserReferralProgram.getReferralCode() ?? "--")"),
+                Row(text: "View Rewards Debug Menu", selection: {
+                    self.displayRewardsDebugMenu()
+                }, accessory: .disclosureIndicator, cellClass: MultilineValue1Cell.self),
                 Row(text: "Load all QA Links", selection: {
                     let url = URL(string: "https://raw.githubusercontent.com/brave/qa-resources/master/testlinks.json")!
                     let string = try? String(contentsOf: url)
@@ -486,42 +469,5 @@ extension TableViewController: Themeable {
         // exiting menus, so setting explicitly.
         navigationController?.navigationBar.tintColor = UINavigationBar.appearance().tintColor
         navigationController?.navigationBar.barTintColor = UINavigationBar.appearance().appearanceBarTintColor
-    }
-}
-
-fileprivate class MultilineButtonCell: ButtonCell {
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        textLabel?.numberOfLines = 0
-    }
-    
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-fileprivate class MultilineValue1Cell: Value1Cell {
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        textLabel?.numberOfLines = 0
-    }
-    
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-fileprivate class MultilineSubtitleCell: SubtitleCell {
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        textLabel?.numberOfLines = 0
-        detailTextLabel?.numberOfLines = 0
-    }
-    
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }

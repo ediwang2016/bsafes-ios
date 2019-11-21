@@ -4,13 +4,16 @@
 
 import XCTest
 import CoreData
+import Shared
 @testable import Data
 
 class BookmarkTests: CoreDataTestCase {
     let fetchRequest = NSFetchRequest<Bookmark>(entityName: "Bookmark")
     
-    private func entity(for context: NSManagedObjectContext) -> NSEntityDescription {
-        return NSEntityDescription.entity(forEntityName: String(describing: Bookmark.self), in: context)!
+    override func setUp() {
+        super.setUp()
+        // Initialize sync so it will not fire on wrong thread.
+        _ = Sync.shared
     }
     
     // MARK: - Getters/properties
@@ -124,6 +127,73 @@ class BookmarkTests: CoreDataTestCase {
         XCTAssertNil(result.url)
         XCTAssertNil(result.title)
         assertDefaultValues(for: result)
+    }
+    
+    func testValidateBookmark() {
+        let validate = BookmarkValidation.validateBookmark
+        XCTAssertTrue(validate("Brave", "https://brave.com"))
+        XCTAssertTrue(validate("Brave", "https://brave.com/"))
+        XCTAssertTrue(validate("Brave", "http://brave.com"))
+        XCTAssertTrue(validate("Brave", "http://brave.com/"))
+        XCTAssertFalse(validate(nil, "https://brave.com"))
+        XCTAssertTrue(validate("Brave", nil))
+        XCTAssertFalse(validate("Brave", "https"))
+        
+        XCTAssertTrue(validate("Brave", "javascript:"))
+        XCTAssertTrue(validate("Brave", "javascript://"))
+        XCTAssertFalse(validate("Brave", "javascript:(function(){})"))
+        XCTAssertFalse(validate("Brave", "javascript:(function(){})()"))
+        
+        XCTAssertTrue(validate("Brave", "https://brave.com?query=1"))
+        XCTAssertTrue(validate("Brave", "https://brave.com/?query=1"))
+        XCTAssertTrue(validate("Brave", "https://brave.com?query=1&other=2"))
+        XCTAssertTrue(validate("Brave", "https://brave.com/?query=1&other=2"))
+        
+        XCTAssertTrue(validate("Brave", "ftp://brave.com"))
+        XCTAssertTrue(validate("Brave", "https://brandon@brave.com"))
+        XCTAssertTrue(validate("Brave", "https://brandon@brave.com/"))
+        XCTAssertTrue(validate("Brave", "https://brandon:password@brave.com"))
+        XCTAssertTrue(validate("Brave", "https://brandon:password@brave.com:8080"))
+        XCTAssertTrue(validate("Brave", "https://brandon@brave.com:8080"))
+        XCTAssertTrue(validate("Brave", "https://brave.com:8080"))
+        XCTAssertTrue(validate("Brave", "https://www.brave.com"))
+        XCTAssertTrue(validate("Brave", "https://www.brave.com:8080"))
+        XCTAssertTrue(validate("Brave", "https://ww2.brave.com"))
+        XCTAssertTrue(validate("Brave", "https://ww2.brave.com?query=%20test%20bookmarks"))
+        
+        // scheme-less urls..
+        XCTAssertFalse(validate("Brave", "www.brave.com"))
+        XCTAssertFalse(validate("Brave", "www.brave.com:8080"))
+        XCTAssertFalse(validate("Brave", "brave.com"))
+        XCTAssertFalse(validate("Brave", "brandon@brave.com"))
+        XCTAssertFalse(validate("Brave", "brandon:password@brave.com"))
+        XCTAssertFalse(validate("Brave", "brandon@brave.com:8080"))
+        XCTAssertFalse(validate("Brave", "brandon:password@brave.com:8080"))
+    }
+    
+    func testValidateBookmarklet() {
+        let validate = BookmarkValidation.validateBookmarklet
+        XCTAssertTrue(validate("Brave", "javascript:void(window.close(self))"))
+        XCTAssertTrue(validate("Brave", "javascript:window.open('https://brave.com')"))
+        XCTAssertTrue(validate("Brave", nil))
+        XCTAssertFalse(validate("Brave", "javascript:function(){}"))
+        XCTAssertTrue(validate("Brave", "javascript:(function(){})()"))
+        XCTAssertTrue(validate("Brave", "javascript:(function(){})"))
+        
+        XCTAssertFalse(validate(nil, "javascript:window.open('https://brave.com')"))
+        XCTAssertFalse(validate("Brave", "javascript:"))
+        XCTAssertFalse(validate("Brave", "javascript:%20function(){}"))
+        XCTAssertFalse(validate("Brave", "javascript:(function(){)"))
+        
+        XCTAssertFalse(validate("Brave", "javascript:/"))
+        XCTAssertFalse(validate("Brave", "javascript://"))
+        XCTAssertFalse(validate("Brave", "javascript://(function(){})"))
+        XCTAssertFalse(validate("Brave", "https:(function(){})"))
+        XCTAssertFalse(validate("Brave", "https://brave.com"))
+        XCTAssertFalse(validate("Brave", "https://brave.com/"))
+        XCTAssertFalse(validate("Brave", "https://"))
+        XCTAssertFalse(validate("Brave", "brave:some"))
+        XCTAssertFalse(validate("Brave", "brave:some?query=1"))
     }
     
     func testCreateFolder() {
@@ -245,8 +315,9 @@ class BookmarkTests: CoreDataTestCase {
         let object = createAndWait(url: URL(string: url), title: "title", customTitle: customTitle)
         XCTAssertEqual(Bookmark.getAllBookmarks().count, 1)
         
-        object.update(customTitle: customTitle, url: object.url)
-        sleep(UInt32(1))
+        backgroundSaveAndWaitForExpectation(inverted: true) {
+            object.update(customTitle: customTitle, url: object.url)
+        }
         
         // Make sure not any new record was added to DB
         XCTAssertEqual(Bookmark.getAllBookmarks().count, 1)
@@ -437,7 +508,7 @@ class BookmarkTests: CoreDataTestCase {
         let syncBookmark = SyncBookmark()
         syncBookmark.site = site
         
-        var object = createAndWait(url: url, title: title)
+        let object = createAndWait(url: url, title: title)
         
         let oldCreated = object.created
         let oldLastVisited = object.lastVisited
@@ -446,10 +517,10 @@ class BookmarkTests: CoreDataTestCase {
         XCTAssertNotEqual(object.url, newUrl)
         
         backgroundSaveAndWaitForExpectation {
-            object.updateResolvedRecord(syncBookmark)
+            object.updateResolvedRecord(syncBookmark, context: .new(inMemory: false))
         }
         
-        object = try! DataController.viewContext.fetch(fetchRequest).first!
+        DataController.viewContext.refreshAllObjects()
         
         XCTAssertEqual(object.title, newTitle)
         XCTAssertEqual(object.url, newUrl)
@@ -553,6 +624,7 @@ class BookmarkTests: CoreDataTestCase {
             Bookmark.reorderBookmarks(frc: frc, sourceIndexPath: sourceIndexPath, destinationIndexPath: destinationIndexPath)
         }
         
+        DataController.viewContext.refresh(sourceObject, mergeChanges: false)
         
         // Test order has changed, won't work when swapping bookmarks with order = 0
         if !skipOrderChangeTests {

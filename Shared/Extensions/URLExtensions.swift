@@ -101,7 +101,7 @@ extension URL {
 }
 
 // The list of permanent URI schemes has been taken from http://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml 
-private let permanentURISchemes = ["aaa", "aaas", "about", "acap", "acct", "cap", "cid", "coap", "coaps", "crid", "data", "dav", "dict", "dns", "example", "file", "ftp", "geo", "go", "gopher", "h323", "http", "https", "iax", "icap", "im", "imap", "info", "ipp", "ipps", "iris", "iris.beep", "iris.lwz", "iris.xpc", "iris.xpcs", "jabber", "ldap", "mailto", "mid", "msrp", "msrps", "mtqp", "mupdate", "news", "nfs", "ni", "nih", "nntp", "opaquelocktoken", "pkcs11", "pop", "pres", "reload", "rtsp", "rtsps", "rtspu", "service", "session", "shttp", "sieve", "sip", "sips", "sms", "snmp", "soap.beep", "soap.beeps", "stun", "stuns", "tag", "tel", "telnet", "tftp", "thismessage", "tip", "tn3270", "turn", "turns", "tv", "urn", "vemmi", "vnc", "ws", "wss", "xcon", "xcon-userid", "xmlrpc.beep", "xmlrpc.beeps", "xmpp", "z39.50r", "z39.50s"]
+private let permanentURISchemes = ["aaa", "aaas", "about", "acap", "acct", "cap", "cid", "coap", "coaps", "crid", "data", "dav", "dict", "dns", "example", "file", "ftp", "geo", "go", "gopher", "h323", "http", "https", "iax", "icap", "im", "imap", "info", "ipp", "ipps", "iris", "iris.beep", "iris.lwz", "iris.xpc", "iris.xpcs", "jabber", "javascript", "ldap", "mailto", "mid", "msrp", "msrps", "mtqp", "mupdate", "news", "nfs", "ni", "nih", "nntp", "opaquelocktoken", "pkcs11", "pop", "pres", "reload", "rtsp", "rtsps", "rtspu", "service", "session", "shttp", "sieve", "sip", "sips", "sms", "snmp", "soap.beep", "soap.beeps", "stun", "stuns", "tag", "tel", "telnet", "tftp", "thismessage", "tip", "tn3270", "turn", "turns", "tv", "urn", "vemmi", "vnc", "ws", "wss", "xcon", "xcon-userid", "xmlrpc.beep", "xmlrpc.beeps", "xmpp", "z39.50r", "z39.50s"]
 
 private let ignoredSchemes = ["data"]
 private let supportedSchemes = permanentURISchemes.filter { !ignoredSchemes.contains($0) }
@@ -164,13 +164,13 @@ extension URL {
      **/
     public var hostSLD: String {
         guard let publicSuffix = self.publicSuffix, let baseDomain = self.baseDomain else {
-            return self.normalizedHost ?? self.absoluteString
+            return self.normalizedHost() ?? self.absoluteString
         }
         return baseDomain.replacingOccurrences(of: ".\(publicSuffix)", with: "")
     }
 
     public var normalizedHostAndPath: String? {
-        return normalizedHost.flatMap { $0 + self.path }
+        return normalizedHost().flatMap { $0 + self.path }
     }
 
     public var absoluteDisplayString: String {
@@ -243,28 +243,34 @@ extension URL {
      * E.g., https://m.foo.com/bar/baz?noo=abc#123  => https://foo.com/
      *
      * Any failure? Return this URL.
+     *
+     * @param stripWWWSubdomainOnly only strips the www host if true. Else m and mobile are also stripped
+     * E.g., https://mobile.foo.com/bar/baz?noo=abc#123 => https://mobile.foo.com/
      */
-    public var domainURL: URL {
-        if let normalized = self.normalizedHost {
-            // Use NSURLComponents instead of NSURL since the former correctly preserves
-            // brackets for IPv6 hosts, whereas the latter escapes them.
-            var components = URLComponents()
+    public func domainURL(stripWWWSubdomainOnly: Bool = false) -> URL {
+        // Use URLComponents instead of URL since the former correctly preserves
+        // brackets for IPv6 hosts, whereas the latter escapes them.
+        if let normalized = self.normalizedHost(stripWWWSubdomainOnly),
+            var components = URLComponents(url: self, resolvingAgainstBaseURL: false) {
             components.scheme = self.scheme
             components.port = self.port
             components.host = normalized
             return components.url ?? self
         }
+
         return self
     }
 
-    public var normalizedHost: String? {
+    public func normalizedHost(_ stripWWWSubdomainOnly: Bool = false) -> String? {
         // Use components.host instead of self.host since the former correctly preserves
         // brackets for IPv6 hosts, whereas the latter strips them.
         guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false), var host = components.host, host != "" else {
             return nil
         }
 
-        if let range = host.range(of: "^(www|mobile|m)\\.", options: .regularExpression) {
+        let textToReplace = stripWWWSubdomainOnly ? "^(www)\\." : "^(www|mobile|m)\\."
+
+        if let range = host.range(of: textToReplace, options: .regularExpression) {
             host.replaceSubrange(range, with: "")
         }
 
@@ -389,6 +395,16 @@ extension URL {
         }
         return nil
     }
+    
+    // This is a helper function for determining wetherr the url is a Media URL
+    // as handled in Rewards lib.
+    public var isMediaSiteURL: Bool {
+        // Don't need to include Github as it does a page load instead of XHR load.
+        guard let domain = self.baseDomain else {
+            return true
+        }
+        return ["youtube", "vimeo", "twitch", "twitter", "reddit"].contains(where: domain.contains)
+    }
 }
 
 // Helpers to deal with About URLs
@@ -418,6 +434,88 @@ extension URL {
         return nil
     }
 
+}
+
+// Helpers to deal with Peek and Pop
+extension URL {
+    public var eligibleForPeekAndPop: Bool {
+        let ignoredSchemes = ["about"]
+        
+        guard let scheme = self.scheme else { return false }
+        
+        if let _ = ignoredSchemes.firstIndex(of: scheme) {
+            return false
+        }
+        
+        if self.host == "localhost" {
+            return false
+        }
+        
+        return true
+    }
+    
+    public var isImageResource: Bool {
+        return ["jpg", "jpeg", "png", "gif"].contains(pathExtension)
+    }
+    
+    public var imageSize: CGSize? {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithURL(self as CFURL, imageSourceOptions),
+            let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, imageSourceOptions) as? [AnyHashable: Any],
+            let pixelWidth = imageProperties[kCGImagePropertyPixelWidth as String],
+            let pixelHeight = imageProperties[kCGImagePropertyPixelHeight as String] else {
+                return nil
+        }
+        
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        
+        // swiftlint:disable force_cast
+        CFNumberGetValue((pixelWidth as! CFNumber), .cgFloatType, &width)
+        
+        // swiftlint:disable force_cast
+        CFNumberGetValue((pixelHeight as! CFNumber), .cgFloatType, &height)
+        
+        guard width > 0, height > 0 else {
+            return nil
+        }
+        
+        return CGSize(width: width, height: height)
+    }
+}
+
+extension URL {
+    public var isBookmarklet: Bool {
+        return self.absoluteString.isBookmarklet
+    }
+    
+    public var bookmarkletCodeComponent: String? {
+        return self.absoluteString.bookmarkletCodeComponent
+    }
+}
+
+extension String {
+    public var isBookmarklet: Bool {
+        let url = self.lowercased()
+        return url.hasPrefix("javascript:") &&
+            !url.hasPrefix("javascript:/")
+    }
+    
+    public var bookmarkletCodeComponent: String? {
+        if self.isBookmarklet {
+            if let result = String(self.dropFirst("javascript:".count)).removingPercentEncoding {
+                return result.isEmpty ? nil : result
+            }
+        }
+        return nil
+    }
+    
+    public var bookmarkletURL: URL? {
+        if self.isBookmarklet, let escaped = self.addingPercentEncoding(withAllowedCharacters: .URLAllowed) {
+            return URL(string: escaped)
+        }
+        return nil
+    }
 }
 
 //MARK: Private Helpers

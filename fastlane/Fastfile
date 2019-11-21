@@ -37,16 +37,6 @@ platform :ios do
       device: "iPhone 8",
       code_coverage: true,
       skip_testing: [
-        "DataTests/BookmarkTests",
-        "DataTests/CRUDProtocolsTests",
-        "DataTests/CoreDataTestCase",
-        "DataTests/DataControllerTests",
-        "DataTests/DeviceTests",
-        "DataTests/DomainTests",
-        "DataTests/FaviconMOTests",
-        "DataTests/HistoryTests",
-        "DataTests/TabMOTests",
-        "DataTests/FavoriteTests",
         "ClientTests/TabManagerTests/testQueryAddedTabs",
         "ClientTests/TabManagerTests/testQueryAddedPrivateTabs",
         "ClientTests/TabManagerTests/testQueryAddedMixedTabs",
@@ -54,7 +44,8 @@ platform :ios do
         "ClientTests/UIImageViewExtensionsTests/testAsyncSetIconFail",
         "ClientTests/FingerprintProtectionTest/testFingerprintProtection",
         "ClientTests/TabSessionTests",
-        "ClientTests/ContentBlockerTests"
+        "ClientTests/ContentBlockerTests",
+        "ClientTests/ClientTests/testUserAgent"
       ]
     )
   end

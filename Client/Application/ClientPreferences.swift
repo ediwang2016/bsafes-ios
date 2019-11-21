@@ -49,6 +49,9 @@ extension Preferences {
         static let showBookmarkToolbarShortcut = Option<Bool>(key: "general.show-bookmark-toolbar-shortcut", default: UIDevice.isIpad)
         /// Sets Desktop UA for iPad by default (iOS 13+ & iPad only)
         static let alwaysRequestDesktopSite = Option<Bool>(key: "general.always-request-desktop-site", default: UIDevice.isIpad)
+        /// Controls whether or not media auto-plays
+        static let mediaAutoPlays = Option<Bool>(key: "general.media-auto-plays", default: false)
+        
         /// Whether or not a user has enabled Night Mode.
         ///
         /// Currently unused
@@ -58,10 +61,18 @@ extension Preferences {
         /// Currently unused.
         static let showClipboardBar = Option<Bool>(key: "general.show-clipboard-bar", default: false)
         /// Whether or not new user onboarding has completed.
-        /// User skipping(tapping on skip) onboarding counts as completed too.
+        /// User skipping(tapping on skip) onboarding does NOT count as completed.
         /// If user kills the app before completing onboarding, it should be treated as unfinished.
         static let basicOnboardingCompleted = Option<Int>(key: "general.basic-onboarding-completed",
                                                           default: OnboardingState.undetermined.rawValue)
+        /// The time until the next on-boarding shows
+        static let basicOnboardingNextOnboardingPrompt = Option<Date?>(key: "general.basic-onboarding-days",
+                                                                      default: nil)
+        
+        /// The progress the user has made with onboarding
+        static let basicOnboardingProgress = Option<Int>(key: "general.basic-onboarding-progress", default: OnboardingProgress.none.rawValue)
+        /// Whether or not link preview upon long press action should be shown.
+        static let enableLinkPreview = Option<Bool>(key: "general.night-mode", default: true)
     }
     final class Search {
         /// Whether or not to show suggestions while the user types

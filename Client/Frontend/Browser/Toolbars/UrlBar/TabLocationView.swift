@@ -184,7 +184,6 @@ class TabLocationView: UIView {
     lazy var rewardsButton: RewardsButton = {
         let button = RewardsButton()
         button.addTarget(self, action: #selector(didClickBraveRewardsButton), for: .touchUpInside)
-        button.isDisabled = PrivateBrowsingManager.shared.isPrivateBrowsing
         return button
     }()
     
@@ -257,7 +256,7 @@ class TabLocationView: UIView {
     
     @objc private func privateBrowsingModeChanged() {
         #if !NO_REWARDS
-        rewardsButton.isDisabled = PrivateBrowsingManager.shared.isPrivateBrowsing
+        rewardsButton.isHidden = PrivateBrowsingManager.shared.isPrivateBrowsing
         #endif
     }
 
@@ -322,7 +321,7 @@ class TabLocationView: UIView {
 
     fileprivate func updateTextWithURL() {
         (urlTextField as? DisplayTextField)?.hostString = url?.host ?? ""
-        urlTextField.text = url?.schemelessAbsoluteString.trim("/")
+        urlTextField.text = url?.domainURL(stripWWWSubdomainOnly: true).schemelessAbsoluteString.trim("/")
     }
 }
 

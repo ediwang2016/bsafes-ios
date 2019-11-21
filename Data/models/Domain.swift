@@ -21,6 +21,7 @@ public final class Domain: NSManagedObject, CRUD {
     @NSManaged public var shield_safeBrowsing: NSNumber?
 
     @NSManaged public var historyItems: NSSet?
+    @NSManaged public var readListItems: NSSet?
     @NSManaged public var bookmarks: NSSet?
     
     private var urlComponents: URLComponents? {
@@ -106,7 +107,7 @@ extension Domain {
     class func getOrCreateInternal(_ url: URL,
                                    context: NSManagedObjectContext = DataController.viewContext,
                                    save: Bool = true) -> Domain {
-        let domainString = url.domainURL.absoluteString
+        let domainString = url.domainURL().absoluteString
         if let domain = Domain.first(where: NSPredicate(format: "url == %@", domainString), context: context) {
             return domain
         }
@@ -158,7 +159,7 @@ extension Domain {
     }
     
     class func getForUrl(_ url: URL) -> Domain? {
-        let domainString = url.domainURL.absoluteString
+        let domainString = url.domainURL().absoluteString
         return Domain.first(where: NSPredicate(format: "url == %@", domainString))
     }
     

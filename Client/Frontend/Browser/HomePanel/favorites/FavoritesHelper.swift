@@ -20,8 +20,8 @@ struct FavoritesHelper {
 
     static func convertToBookmarks(_ sites: [Site]) {
         sites.forEach { site in
-            if let url = try? site.url.asURL() {
-                Bookmark.addFavorite(url: url, title: url.normalizedHost ?? site.url)
+            if let url = URL(string: site.url) {
+                Bookmark.addFavorite(url: url, title: url.normalizedHost() ?? site.url)
             }
         }
     }

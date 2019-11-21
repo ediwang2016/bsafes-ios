@@ -10,7 +10,6 @@ import Shared
 import Storage
 import SnapKit
 import XCGLogger
-import Alamofire
 import MobileCoreServices
 import SwiftyJSON
 import Deferred
@@ -20,6 +19,7 @@ import SwiftKeychainWrapper
 import BraveRewardsUI
 import BraveRewards
 import StoreKit
+import SafariServices
 
 private let log = Logger.browserLogger
 
@@ -153,7 +153,17 @@ class BrowserViewController: UIViewController {
         rewardsObserver = nil
         #else
         RewardsHelper.configureRewardsLogs()
-        rewards = BraveRewards(configuration: .default)
+        let configuration: BraveRewardsConfiguration
+        if AppConstants.BuildChannel.isRelease {
+            configuration = .production
+        } else {
+            if let override = Preferences.Rewards.EnvironmentOverride(rawValue: Preferences.Rewards.environmentOverride.value), override != .none {
+                configuration = override == .prod ? .production : .default
+            } else {
+                configuration = AppConstants.BuildChannel == .developer ? .default : .production
+            }
+        }
+        rewards = BraveRewards(configuration: configuration)
         rewardsObserver = LedgerObserver(ledger: rewards!.ledger)
         #endif
 
@@ -218,10 +228,14 @@ class BrowserViewController: UIViewController {
         
         if let rewards = rewards {
             notificationsHandler = AdsNotificationHandler(ads: rewards.ads, presentingController: self)
+            notificationsHandler?.canShowNotifications = {
+                return !PrivateBrowsingManager.shared.isPrivateBrowsing
+            }
             notificationsHandler?.actionOccured = { [weak self] notification, action in
                 guard let self = self else { return }
                 if action == .opened {
-                    self.openInNewTab(notification.url, isPrivate: PrivateBrowsingManager.shared.isPrivateBrowsing)
+                    let request = URLRequest(url: notification.url)
+                    self.tabManager.addTabAndSelect(request, isPrivate: PrivateBrowsingManager.shared.isPrivateBrowsing)
                 }
             }
         }
@@ -250,12 +264,15 @@ class BrowserViewController: UIViewController {
         guard let rewards = rewards, rewards.ledger.isEnabled && rewards.ads.isEnabled else { return }
         if Preferences.Rewards.myFirstAdShown.value { return }
         // Check if ads are eligible
-        if BraveAds.isSupportedRegion(Locale.current.identifier) {
+        if BraveAds.isCurrentRegionSupported() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 if Preferences.Rewards.myFirstAdShown.value { return }
                 Preferences.Rewards.myFirstAdShown.value = true
-                AdsViewController.displayFirstAd(on: self) { [weak self] url in
-                    self?.openInNewTab(url, isPrivate: PrivateBrowsingManager.shared.isPrivateBrowsing)
+                 AdsViewController.displayFirstAd(on: self) { [weak self] action, url in
+                    if action == .opened {
+                        let request = URLRequest(url: url)
+                        self?.tabManager.addTabAndSelect(request, isPrivate: PrivateBrowsingManager.shared.isPrivateBrowsing)
+                    }
                 }
             }
         }
@@ -667,17 +684,87 @@ class BrowserViewController: UIViewController {
     }
     
     func presentOnboardingIntro() {
-        if Preferences.General.basicOnboardingCompleted.value != OnboardingState.completed.rawValue {
+        let isRewardsEnabled = rewards?.ledger.isEnabled == true
+        
+        // 1. Existing user.
+        // 2. The user skipped onboarding before.
+        // 3. 60 days have passed since they last saw onboarding.
+        if Preferences.General.basicOnboardingCompleted.value == OnboardingState.skipped.rawValue {
+
+            guard let daysUntilNextPrompt = Preferences.General.basicOnboardingNextOnboardingPrompt.value else {
+                return
+            }
+            
+            // 60 days has passed since the user last saw the onboarding.. it's time to show the onboarding again..
+            if daysUntilNextPrompt <= Date() {
+                guard let onboarding = OnboardingNavigationController(
+                    profile: profile,
+                    onboardingType: isRewardsEnabled ? .existingUserRewardsOn : .existingUserRewardsOff,
+                    rewards: rewards,
+                    theme: Theme.of(tabManager.selectedTab)
+                    ) else { return }
+                
+                onboarding.onboardingDelegate = self
+                present(onboarding, animated: true)
+                
+                Preferences.General.basicOnboardingNextOnboardingPrompt.value = Date(timeIntervalSinceNow: BrowserViewController.onboardingDaysInterval)
+            }
+            
+            return
+        }
+        
+        // 1. Rewards are on/off (existing user)
+        // 2. User hasn't seen the rewards part of the onboarding yet.
+        if (Preferences.General.basicOnboardingCompleted.value == OnboardingState.completed.rawValue)
+            &&
+            (Preferences.General.basicOnboardingProgress.value == OnboardingProgress.searchEngine.rawValue) {
+            
             guard let onboarding = OnboardingNavigationController(
                 profile: profile,
-                onboardingType: .newUser,
+                onboardingType: isRewardsEnabled ? .existingUserRewardsOn : .existingUserRewardsOff,
+                rewards: rewards,
                 theme: Theme.of(tabManager.selectedTab)
                 ) else { return }
             
             onboarding.onboardingDelegate = self
             present(onboarding, animated: true)
-        } else {
-            // Existing users onboarding TBD
+        }
+        
+        // 1. Rewards are on/off (existing user)
+        // 2. Ads are now available
+        // 3. User hasn't seen the ads part of onboarding yet
+        if BraveAds.isCurrentRegionSupported()
+            &&
+            (Preferences.General.basicOnboardingCompleted.value == OnboardingState.completed.rawValue)
+            &&
+            (Preferences.General.basicOnboardingProgress.value != OnboardingProgress.ads.rawValue) {
+            
+            guard let onboarding = OnboardingNavigationController(
+                profile: profile,
+                onboardingType: isRewardsEnabled ? .existingUserRewardsOn : .existingUserRewardsOff,
+                rewards: rewards,
+                theme: Theme.of(tabManager.selectedTab)
+                ) else { return }
+            
+            onboarding.onboardingDelegate = self
+            present(onboarding, animated: true)
+        }
+        
+        // 1. User is brand new
+        // 2. User hasn't completed onboarding
+        // 3. We don't care how much progress they made. Onboarding is only complete when ALL of it is complete.
+        if Preferences.General.basicOnboardingCompleted.value != OnboardingState.completed.rawValue {
+            // The user has never completed the onboarding..
+            
+            guard let onboarding = OnboardingNavigationController(
+                profile: profile,
+                onboardingType: .newUser,
+                rewards: rewards,
+                theme: Theme.of(tabManager.selectedTab)
+                ) else { return }
+            
+            onboarding.onboardingDelegate = self
+            present(onboarding, animated: true)
         }
     }
 
@@ -930,18 +1017,35 @@ class BrowserViewController: UIViewController {
     }
 
     func finishEditingAndSubmit(_ url: URL, visitType: VisitType) {
-        topToolbar.currentURL = url
-        topToolbar.leaveOverlayMode()
+        if url.isBookmarklet {
+            topToolbar.leaveOverlayMode()
+            
+            guard let tab = tabManager.selectedTab else {
+                return
+            }
+            
+            if let webView = tab.webView, let code = url.bookmarkletCodeComponent {
+                resetSpoofedUserAgentIfRequired(webView, newURL: url)
+                webView.evaluateJavaScript(code, completionHandler: { _, error in
+                    if let error = error {
+                        log.error(error)
+                    }
+                })
+            }
+        } else {
+            topToolbar.currentURL = url
+            topToolbar.leaveOverlayMode()
 
-        guard let tab = tabManager.selectedTab else {
-            return
+            guard let tab = tabManager.selectedTab else {
+                return
+            }
+
+            if let webView = tab.webView {
+                resetSpoofedUserAgentIfRequired(webView, newURL: url)
+            }
+
+            tab.loadRequest(PrivilegedRequest(url: url) as URLRequest)
         }
-
-        if let webView = tab.webView {
-            resetSpoofedUserAgentIfRequired(webView, newURL: url)
-        }
-
-        tab.loadRequest(PrivilegedRequest(url: url) as URLRequest)
     }
 
     override func accessibilityPerformEscape() -> Bool {
@@ -1088,13 +1192,27 @@ class BrowserViewController: UIViewController {
             updateInContentHomePanel(url as URL)
         }
     }
-
+    
+    // This variable is used to keep track of current page. It is used to detect internal site navigation
+    // to report internal page load to Rewards lib
+    var rewardsXHRLoadURL: URL?
+    
     /// Updates the URL bar security, text and button states.
     fileprivate func updateURLBar() {
         guard let tab = tabManager.selectedTab else { return }
-        if let url = tab.url, url.isLocal {
+        if let url = tab.url, !url.isLocal {
+            // Notify Rewards of new page load.
+            if let rewards = rewards, let rewardsURL = rewardsXHRLoadURL,
+                url.host == rewardsURL.host,
+                url.isMediaSiteURL {
+                tabManager.selectedTab?.reportPageNaviagtion(to: rewards)
+                tabManager.selectedTab?.reportPageLoad(to: rewards)
+            }
+        } else {
             self.topToolbar.locationView.rewardsButton.isVerified = false
         }
+        
+        self.topToolbar.locationView.rewardsButton.isHidden = PrivateBrowsingManager.shared.isPrivateBrowsing
         
         topToolbar.currentURL = tab.url?.displayURL
         
@@ -1707,6 +1825,9 @@ extension BrowserViewController: ToolbarDelegate {
         tabManager.selectedTab?.goForward()
     }
     
+    func addToReadList(title: String, url: URL) {
+        ReadList.add(title, url: url)
+    }
     func tabToolbarDidPressShare() {
         func share(url: URL) {
             presentActivityViewController(
@@ -1761,7 +1882,8 @@ extension BrowserViewController: ToolbarDelegate {
             })
             actions.append(newPrivateTabAction)
         }
-        actions.append(UIAlertAction(title: Strings.NewTabTitle, style: .default, handler: { [unowned self] _ in
+        let bottomActionTitle = PrivateBrowsingManager.shared.isPrivateBrowsing ? Strings.NewPrivateTabTitle : Strings.NewTabTitle
+        actions.append(UIAlertAction(title: bottomActionTitle, style: .default, handler: { [unowned self] _ in
             self.openBlankNewTab(focusLocationField: true, isPrivate: PrivateBrowsingManager.shared.isPrivateBrowsing)
         }))
         return actions
@@ -1872,9 +1994,13 @@ extension BrowserViewController: TabDelegate {
             tab.addContentScript(logins, name: LoginsHelper.name())
         }
 
-        let contextMenuHelper = ContextMenuHelper(tab: tab)
-        contextMenuHelper.delegate = self
-        tab.addContentScript(contextMenuHelper, name: ContextMenuHelper.name())
+        if #available(iOS 13, *) {
+            // Do nothing, native API is used.
+        } else {
+            let contextMenuHelper = ContextMenuHelper(tab: tab)
+            contextMenuHelper.delegate = self
+            tab.addContentScript(contextMenuHelper, name: ContextMenuHelper.name())
+        }
 
         let errorHelper = ErrorPageHelper()
         tab.addContentScript(errorHelper, name: ErrorPageHelper.name())
@@ -2328,6 +2454,108 @@ extension BrowserViewController: WKUIDelegate {
             self.tabManager.removeTab(tab)
         }
     }
+    
+    @available(iOS 13.0, *)
+    func webView(_ webView: WKWebView, contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo, completionHandler: @escaping (UIContextMenuConfiguration?) -> Void) {
+        
+        guard let url = elementInfo.linkURL else { return completionHandler(UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: nil)) }
+        
+        let actionProvider: UIContextMenuActionProvider = { _ -> UIMenu? in
+            var actions = [UIAction]()
+            
+            if let currentTab = self.tabManager.selectedTab {
+                let tabType = currentTab.type
+                
+                if !tabType.isPrivate {
+                    let openNewTabAction = UIAction(title: Strings.OpenNewTabButtonTitle,
+                                                    image: UIImage(systemName: "plus")) { _ in
+                        self.addTab(url: url, inPrivateMode: false, currentTab: currentTab)
+                    }
+                    
+                    openNewTabAction.accessibilityLabel = "linkContextMenu.openInNewTab"
+                    
+                    actions.append(openNewTabAction)
+                }
+                
+                let openNewPrivateTabAction = UIAction(title: Strings.OpenNewPrivateTabButtonTitle,
+                                                       image: #imageLiteral(resourceName: "private_glasses").template) { _ in
+                    self.addTab(url: url, inPrivateMode: true, currentTab: currentTab)
+                }
+                openNewPrivateTabAction.accessibilityLabel = "linkContextMenu.openInNewPrivateTab"
+                
+                actions.append(openNewPrivateTabAction)
+                
+                let copyAction = UIAction(title: Strings.CopyLinkActionTitle,
+                                          image: UIImage(systemName: "doc.on.doc")) { _ in
+                    UIPasteboard.general.url = url
+                }
+                copyAction.accessibilityLabel = "linkContextMenu.copyLink"
+                
+                actions.append(copyAction)
+                
+                if let braveWebView = webView as? BraveWebView {
+                    let shareAction = UIAction(title: Strings.ShareLinkActionTitle,
+                                               image: UIImage(systemName: "square.and.arrow.up")) { _ in
+                        let touchPoint = braveWebView.lastHitPoint
+                        let touchSize = CGSize(width: 0, height: 16)
+                        let touchRect = CGRect(origin: touchPoint, size: touchSize)
+                        
+                        self.presentActivityViewController(url, sourceView: self.view,
+                                                           sourceRect: touchRect,
+                                                           arrowDirection: .any)
+                    }
+                    
+                    shareAction.accessibilityLabel = "linkContextMenu.share"
+                    
+                    actions.append(shareAction)
+                }
+                
+                let linkPreview = Preferences.General.enableLinkPreview.value
+                
+                let linkPreviewTitle = linkPreview ?
+                    Strings.HideLinkPreviewsActionTitle : Strings.ShowLinkPreviewsActionTitle
+                let linkPreviewAction = UIAction(title: linkPreviewTitle, image: UIImage(systemName: "eye.fill")) { _ in
+                    Preferences.General.enableLinkPreview.value.toggle()
+                }
+            
+                actions.append(linkPreviewAction)
+            }
+            
+            return UIMenu(title: url.absoluteString.truncate(length: 100), children: actions)
+        }
+        
+        let linkPreview: UIContextMenuContentPreviewProvider = {
+            return LinkPreviewViewController(url: url)
+        }
+        
+        let linkPreviewProvider = Preferences.General.enableLinkPreview.value ? linkPreview : nil
+        let config = UIContextMenuConfiguration(identifier: nil, previewProvider: linkPreviewProvider,
+                                                actionProvider: actionProvider)
+        
+        completionHandler(config)
+    }
+    
+    @available(iOS 13.0, *)
+    func webView(_ webView: WKWebView, contextMenuForElement elementInfo: WKContextMenuElementInfo, willCommitWithAnimator animator: UIContextMenuInteractionCommitAnimating) {
+        guard let url = elementInfo.linkURL else { return }
+        webView.load(URLRequest(url: url))
+    }
+    
+    fileprivate func addTab(url: URL, inPrivateMode: Bool, currentTab: Tab) {
+        let tab = self.tabManager.addTab(URLRequest(url: url), afterTab: currentTab, isPrivate: inPrivateMode)
+        if inPrivateMode && !PrivateBrowsingManager.shared.isPrivateBrowsing {
+            self.tabManager.selectTab(tab)
+        } else {
+            // We're not showing the top tabs; show a toast to quick switch to the fresh new tab.
+            let toast = ButtonToast(labelText: Strings.ContextMenuButtonToastNewTabOpenedLabelText, buttonText: Strings.ContextMenuButtonToastNewTabOpenedButtonText, completion: { buttonPressed in
+                if buttonPressed {
+                    self.tabManager.selectTab(tab)
+                }
+            })
+            self.show(toast: toast)
+        }
+        self.scrollController.showToolbars(animated: true)
+    }
 }
 
 extension BrowserViewController: ReaderModeDelegate {
@@ -2542,31 +2770,15 @@ extension BrowserViewController: ContextMenuHelperDelegate {
             dialogTitle = url.absoluteString
             let tabType = currentTab.type
 
-            let addTab = { (rURL: URL, isPrivate: Bool) in
-                let tab = self.tabManager.addTab(URLRequest(url: rURL as URL), afterTab: currentTab, isPrivate: isPrivate)
-                if isPrivate && !PrivateBrowsingManager.shared.isPrivateBrowsing {
-                    self.tabManager.selectTab(tab)
-                } else {
-                    // We're not showing the top tabs; show a toast to quick switch to the fresh new tab.
-                    let toast = ButtonToast(labelText: Strings.ContextMenuButtonToastNewTabOpenedLabelText, buttonText: Strings.ContextMenuButtonToastNewTabOpenedButtonText, completion: { buttonPressed in
-                        if buttonPressed {
-                            self.tabManager.selectTab(tab)
-                        }
-                    })
-                    self.show(toast: toast)
-                }
-                self.scrollController.showToolbars(animated: true)
-            }
-
             if !tabType.isPrivate {
                 let openNewTabAction =  UIAlertAction(title: Strings.OpenNewTabButtonTitle, style: .default) { _ in
-                    addTab(url, false)
+                    self.addTab(url: url, inPrivateMode: false, currentTab: currentTab)
                 }
                 actionSheetController.addAction(openNewTabAction, accessibilityIdentifier: "linkContextMenu.openInNewTab")
             }
            
             let openNewPrivateTabAction =  UIAlertAction(title: Strings.OpenNewPrivateTabButtonTitle, style: .default) { _ in
-                addTab(url, true)
+                self.addTab(url: url, inPrivateMode: true, currentTab: currentTab)
             }
             actionSheetController.addAction(openNewPrivateTabAction, accessibilityIdentifier: "linkContextMenu.openInNewPrivateTab")
 
@@ -2628,17 +2840,24 @@ extension BrowserViewController: ContextMenuHelperDelegate {
                 taskId = application.beginBackgroundTask (expirationHandler: {
                     application.endBackgroundTask(taskId)
                 })
-
-                AF.request(url).validate(statusCode: 200..<300).response { response in
+                
+                URLSession(configuration: .default, delegate: nil, delegateQueue: .main).dataTask(with: url, completionHandler: { data, response, error in
+                    
+                    if let response = response as? HTTPURLResponse {
+                        if !(200..<300).contains(response.statusCode) {
+                            return application.endBackgroundTask(taskId)
+                        }
+                    }
+                    
                     // Only set the image onto the pasteboard if the pasteboard hasn't changed since
                     // fetching the image; otherwise, in low-bandwidth situations,
                     // we might be overwriting something that the user has subsequently added.
-                    if changeCount == pasteboard.changeCount, let imageData = response.data, response.error == nil {
+                    if changeCount == pasteboard.changeCount, let imageData = data, error == nil {
                         pasteboard.addImageWithData(imageData, forURL: url)
                     }
-
+                    
                     application.endBackgroundTask(taskId)
-                }
+                }).resume()
             }
             actionSheetController.addAction(copyAction, accessibilityIdentifier: "linkContextMenu.copyImage")
         }
@@ -2666,11 +2885,17 @@ extension BrowserViewController: ContextMenuHelperDelegate {
     }
 
     private func getData(_ url: URL, success: @escaping (Data) -> Void) {
-        AF.request(url).validate(statusCode: 200..<300).response { response in
-            if let data = response.data {
+        URLSession(configuration: .default, delegate: nil, delegateQueue: .main).dataTask(with: url) { data, response, _ in
+            if let response = response as? HTTPURLResponse {
+                if !(200..<300).contains(response.statusCode) {
+                    return
+                }
+            }
+            
+            if let data = data {
                 success(data)
             }
-        }
+        }.resume()
     }
 
     func contextMenuHelper(_ contextMenuHelper: ContextMenuHelper, didCancelGestureRecognizer: UIGestureRecognizer) {
@@ -2781,7 +3006,7 @@ extension BrowserViewController {
         guard searchQuery != "",
             let iconURL = URL(string: favicon.url),
             let url = URL(string: searchQuery.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlFragmentAllowed)!),
-            let shortName = url.domainURL.host else {
+            let shortName = url.domainURL().host else {
                 let alert = ThirdPartySearchAlerts.failedToAddThirdPartySearch()
                 self.present(alert, animated: true, completion: nil)
                 return
@@ -3087,9 +3312,19 @@ extension BrowserViewController: OnboardingControllerDelegate {
         switch onboardingController.onboardingType {
         case .newUser:
             Preferences.General.basicOnboardingCompleted.value = OnboardingState.completed.rawValue
+            Preferences.General.basicOnboardingNextOnboardingPrompt.value = nil
         default: break
         }
         
         onboardingController.dismiss(animated: true)
     }
+    
+    func onboardingSkipped(_ onboardingController: OnboardingNavigationController) {
+        Preferences.General.basicOnboardingCompleted.value = OnboardingState.skipped.rawValue
+        Preferences.General.basicOnboardingNextOnboardingPrompt.value = Date(timeIntervalSinceNow: BrowserViewController.onboardingDaysInterval)
+        onboardingController.dismiss(animated: true)
+    }
+    
+    // 60 days until the next time the user sees the onboarding..
+    static let onboardingDaysInterval = TimeInterval(60.days)
 }

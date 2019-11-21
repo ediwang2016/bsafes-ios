@@ -84,13 +84,11 @@ public final class History: NSManagedObject, WebsitePresentable, CRUD {
     public class func frc() -> NSFetchedResultsController<History> {
         let fetchRequest = NSFetchRequest<History>()
         let context = DataController.viewContext
-        
         fetchRequest.entity = History.entity(context)
         fetchRequest.fetchBatchSize = 20
         fetchRequest.fetchLimit = 200
         fetchRequest.sortDescriptors = [NSSortDescriptor(key: "visitedOn", ascending: false)]
         fetchRequest.predicate = NSPredicate(format: "visitedOn >= %@", History.ThisMonth as CVarArg)
-
         return NSFetchedResultsController(fetchRequest: fetchRequest, managedObjectContext: context, sectionNameKeyPath: "sectionIdentifier", cacheName: nil)
     }
     

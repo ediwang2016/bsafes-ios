@@ -166,7 +166,7 @@ class NSURLExtensionsTests: XCTestCase {
         let nsURL = url.asURL
         XCTAssertNotNil(nsURL, "URL parses.")
 
-        let host = nsURL!.normalizedHost
+        let host = nsURL!.normalizedHost()
         XCTAssertEqual(host!, "bugzilla.mozilla.org")
         XCTAssertEqual(nsURL!.fragment!, "h=dupes%7CData%20%26%20BI%20Services%20Team%7C")
     }
@@ -175,7 +175,7 @@ class NSURLExtensionsTests: XCTestCase {
         let url = "http://[::1]/foo/bar".asURL!
         XCTAssertTrue(url.isIPv6)
         XCTAssertNil(url.baseDomain)
-        XCTAssertEqual(url.normalizedHost!, "[::1]")
+        XCTAssertEqual(url.normalizedHost()!, "[::1]")
     }
 
     func testisAboutHomeURL() {
@@ -359,11 +359,20 @@ class NSURLExtensionsTests: XCTestCase {
 
     func testdomainURL() {
         let urls = [
-            ("https://www.example.com/index.html", "https://example.com"),
-            ("https://mail.example.com/index.html", "https://mail.example.com"),
-            ("https://mail.example.co.uk/index.html", "https://mail.example.co.uk"),
+            ("https://www.example.com/index.html", "https://example.com/index.html"),
+            ("https://mail.example.com/index.html", "https://mail.example.com/index.html"),
+            ("https://mail.example.co.uk/index.html", "https://mail.example.co.uk/index.html"),
         ]
-        urls.forEach { XCTAssertEqual(URL(string:$0.0)!.domainURL.absoluteString, $0.1) }
+        urls.forEach { XCTAssertEqual(URL(string:$0.0)!.domainURL().absoluteString, $0.1) }
+    }
+    
+    func testdomainURLStrippingOnlyWWW() {
+        let urls = [
+            ("https://www.example.com/index.html", "https://example.com/index.html"),
+            ("https://m.example.com/index.html", "https://m.example.com/index.html"),
+            ("https://mobile.example.co.uk/index.html", "https://mobile.example.co.uk/index.html"),
+        ]
+        urls.forEach { XCTAssertEqual(URL(string:$0.0)!.domainURL(stripWWWSubdomainOnly: true).absoluteString, $0.1) }
     }
 
     func testdisplayURL() {
@@ -494,5 +503,110 @@ class NSURLExtensionsTests: XCTestCase {
         }
 
     }
+    
+    func testeligibleForPeekAndPop() {
+        let goodurls = [
+            "https://www.example.com",
+            "https://www.example.com/index.html",
+            "https://m.foo.com/bar/baz?noo=abc#123",
+            "https://m.example.co.uk/index.html"
+        ]
+        let badurls = [
+            "about:home",
+            "http://localhost:1234/about/firefox"
+        ]
 
+        goodurls.forEach { XCTAssertTrue(URL(string:$0)!.eligibleForPeekAndPop) }
+        badurls.forEach { XCTAssertFalse(URL(string:$0)!.eligibleForPeekAndPop) }
+    }
+    
+    func testisImageResource() {
+        let goodurls = [
+            "https://www.example.com/image.png",
+            "https://www.example.com/image.jpg",
+            "https://m.foo.com/bar/image.jpeg"
+        ]
+        let badurls = [
+            "https://www.example.com",
+            "https://www.example.com/index.html",
+            "https://m.foo.com/bar/baz?noo=abc#123",
+            "about:home",
+            "http://localhost:1234/about/firefox"
+        ]
+        
+        goodurls.forEach { XCTAssertTrue(URL(string:$0)!.isImageResource) }
+        badurls.forEach { XCTAssertFalse(URL(string:$0)!.isImageResource) }
+    }
+    
+    func testIsBookmarkletURL() {
+        let goodURLs = [
+            "javascript:",
+            "javascript:void(window.close(self))",
+            "javascript:window.open('https://brave.com')"
+        ]
+        
+        let badURLs = [
+            "javascript:/",
+            "javascript://",
+            "javascript://something"
+        ]
+        
+        goodURLs.forEach {
+            XCTAssertNotNil($0.bookmarkletURL)
+        }
+        
+        badURLs.forEach {
+            XCTAssertNil($0.bookmarkletURL)
+        }
+    }
+
+    func testIsBookmarkletURLComponent() {
+        let goodURLs = [
+            "javascript:void(window.close(self))",
+            "javascript:window.open('https://brave.com')"
+        ]
+        
+        let badURLs = [
+            "javascript:",
+            "javascript:/",
+            "javascript://",
+            "javascript://something"
+        ]
+        
+        goodURLs.forEach {
+            XCTAssertNotNil($0.bookmarkletCodeComponent)
+        }
+        
+        badURLs.forEach {
+            XCTAssertNil($0.bookmarkletCodeComponent)
+        }
+    }
+    
+    func testMediaSiteURL() {
+        let goodURLs = [
+            "https://www.youtube.com",
+            "https://www.vimeo.com",
+            "https://m.youtube.com",
+            "https://m.twitch.tv",
+            "https://www.twitch.tv"
+        ]
+        
+        let badURLs = [
+            "https://youtube.xyz.com",
+            "https://www.google.com",
+            "https://www.you.tube.com"
+        ]
+        
+        func getURL(url: String) -> URL? {
+            return URL(string: url)
+        }
+        
+        goodURLs.forEach {
+            XCTAssertTrue(getURL(url: $0)?.isMediaSiteURL ?? true, "failed for \($0)")
+        }
+        
+        badURLs.forEach {
+            XCTAssertFalse((getURL(url: $0)?.isMediaSiteURL) ?? false, "failed for \($0)")
+        }
+    }
 }
