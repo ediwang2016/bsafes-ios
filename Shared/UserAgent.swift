@@ -51,6 +51,9 @@ open class UserAgent {
 
     public static func defaultUserAgent() -> String {
         assert(Thread.current.isMainThread, "This method must be called on the main thread.")
+        
+        let bsafes_user_agent = "Bsafes-Browser"
+        return bsafes_user_agent
 
         if let firefoxUA = UserAgent.cachedUserAgent(checkiOSVersion: true) {
             return firefoxUA
