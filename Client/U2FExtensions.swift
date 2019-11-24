@@ -132,12 +132,12 @@ class U2FExtensions: NSObject {
                 return
             }
             
-            let keySession = YubiKitManager.shared.keySession as AnyObject
+            let keySession = YubiKitManager.shared.accessorySession as AnyObject
             
             if observeSessionStateUpdates {
-                keySession.addObserver(self, forKeyPath: #keyPath(YKFKeySession.sessionState), options: [.new, .old], context: &U2FExtensions.observationContext)
+                keySession.addObserver(self, forKeyPath: #keyPath(YKFAccessorySession.sessionState), options: [.new, .old], context: &U2FExtensions.observationContext)
             } else {
-                keySession.removeObserver(self, forKeyPath: #keyPath(YKFKeySession.sessionState))
+                keySession.removeObserver(self, forKeyPath: #keyPath(YKFAccessorySession.sessionState))
             }
         }
     }
@@ -148,14 +148,14 @@ class U2FExtensions: NSObject {
                 return
             }
             
-            let keySession = YubiKitManager.shared.keySession as AnyObject
+            let keySession = YubiKitManager.shared.accessorySession as AnyObject
             
             if observeKeyStateUpdates {
-                keySession.addObserver(self, forKeyPath: #keyPath(YKFKeySession.fido2Service.keyState), options: [], context: &U2FExtensions.observationContext)
-                keySession.addObserver(self, forKeyPath: #keyPath(YKFKeySession.u2fService.keyState), options: [], context: &U2FExtensions.observationContext)
+                keySession.addObserver(self, forKeyPath: #keyPath(YKFAccessorySession.fido2Service.keyState), options: [], context: &U2FExtensions.observationContext)
+                keySession.addObserver(self, forKeyPath: #keyPath(YKFAccessorySession.u2fService.keyState), options: [], context: &U2FExtensions.observationContext)
             } else {
-                keySession.removeObserver(self, forKeyPath: #keyPath(YKFKeySession.fido2Service.keyState))
-                keySession.removeObserver(self, forKeyPath: #keyPath(YKFKeySession.u2fService.keyState))
+                keySession.removeObserver(self, forKeyPath: #keyPath(YKFAccessorySession.fido2Service.keyState))
+                keySession.removeObserver(self, forKeyPath: #keyPath(YKFAccessorySession.u2fService.keyState))
             }
         }
     }
@@ -192,7 +192,7 @@ class U2FExtensions: NSObject {
         }
         
         // Make sure the session is started
-        YubiKitManager.shared.keySession.startSession()
+        YubiKitManager.shared.accessorySession.startSession()
     }
     
     deinit {
@@ -258,12 +258,12 @@ class U2FExtensions: NSObject {
         }
         
         switch keyPath {
-        case #keyPath(YKFKeySession.sessionState):
+        case #keyPath(YKFAccessorySession.sessionState):
             ensureMainThread {
                 self.handleSessionStateChange()
                 self.enableObservers()
             }
-        case #keyPath(YKFKeySession.u2fService.keyState), #keyPath(YKFKeySession.fido2Service.keyState):
+        case #keyPath(YKFAccessorySession.u2fService.keyState), #keyPath(YKFAccessorySession.fido2Service.keyState):
             ensureMainThread {
                 self.presentInteractWithKeyModal()
                 self.enableObservers()
@@ -278,7 +278,7 @@ class U2FExtensions: NSObject {
         fido2RegHandles.append(handle)
         fido2RegisterRequest[handle] = request
 
-        if YubiKitManager.shared.keySession.sessionState != .open {
+        if YubiKitManager.shared.accessorySession.sessionState != .open {
             return
         }
         
@@ -373,7 +373,7 @@ class U2FExtensions: NSObject {
             
             makeCredentialRequest.excludeList = exclusionList
             
-            guard let fido2Service = YubiKitManager.shared.keySession.fido2Service else {
+            guard let fido2Service = YubiKitManager.shared.accessorySession.fido2Service else {
                 self.sendFIDO2RegistrationError(handle: handle)
                 return
             }
@@ -483,7 +483,7 @@ class U2FExtensions: NSObject {
         }
         fido2RegHandles.remove(at: index)
         fido2RegisterRequest.removeValue(forKey: handle)
-        YubiKitManager.shared.keySession.cancelCommands()
+        YubiKitManager.shared.accessorySession.cancelCommands()
     }
     
     // FIDO2 Authentication
@@ -491,7 +491,7 @@ class U2FExtensions: NSObject {
         fido2AuthHandles.append(handle)
         fido2AuthRequest[handle] = request
         
-        if YubiKitManager.shared.keySession.sessionState != .open {
+        if YubiKitManager.shared.accessorySession.sessionState != .open {
             return
         }
         
@@ -558,7 +558,7 @@ class U2FExtensions: NSObject {
                 getAssertionRequest.allowList = allowList
             }
             
-            guard let fido2Service = YubiKitManager.shared.keySession.fido2Service else {
+            guard let fido2Service = YubiKitManager.shared.accessorySession.fido2Service else {
                 sendFIDO2AuthenticationError(handle: handle)
                 return
             }
@@ -664,11 +664,11 @@ class U2FExtensions: NSObject {
     
     // This modal is presented when the key bootstrap is complete
     private func presentInteractWithKeyModal() {
-        guard let fido2Service = YubiKitManager.shared.keySession.fido2Service else {
+        guard let fido2Service = YubiKitManager.shared.accessorySession.fido2Service else {
             return
         }
         
-        guard let u2fService = YubiKitManager.shared.keySession.u2fService else {
+        guard let u2fService = YubiKitManager.shared.accessorySession.u2fService else {
             return
         }
         
@@ -697,7 +697,7 @@ class U2FExtensions: NSObject {
     private func verifyPin(completion: @escaping (Bool) -> Void) -> PopupViewDismissType {
         guard
             let pin = pinVerificationPopup.text, !pin.isEmpty,
-            let fido2Service = YubiKitManager.shared.keySession.fido2Service,
+            let fido2Service = YubiKitManager.shared.accessorySession.fido2Service,
             let verifyPinRequest = YKFKeyFIDO2VerifyPinRequest(pin: pin) else {
                 completion(true)
                 return .flyDown
@@ -741,7 +741,7 @@ class U2FExtensions: NSObject {
         }
         fido2AuthHandles.remove(at: index)
         fido2AuthRequest.removeValue(forKey: handle)
-        YubiKitManager.shared.keySession.cancelCommands()
+        YubiKitManager.shared.accessorySession.cancelCommands()
     }
     
     // FIDO Registration
@@ -759,7 +759,7 @@ class U2FExtensions: NSObject {
             requestId[handle] = id
         }
 
-        if YubiKitManager.shared.keySession.sessionState != .open {
+        if YubiKitManager.shared.accessorySession.sessionState != .open {
             return
         }
         
@@ -777,7 +777,7 @@ class U2FExtensions: NSObject {
             return
         }
         
-        guard let u2fservice = YubiKitManager.shared.keySession.u2fService else {
+        guard let u2fservice = YubiKitManager.shared.accessorySession.u2fService else {
             sendFIDORegistrationError(handle: handle, requestId: requestId, errorCode: U2FErrorCodes.other_error)
             return
         }
@@ -855,7 +855,7 @@ class U2FExtensions: NSObject {
         fidoRegHandles.remove(at: index)
         fidoRegisterRequest.removeValue(forKey: handle)
         requestId.removeValue(forKey: handle)
-        YubiKitManager.shared.keySession.cancelCommands()
+        YubiKitManager.shared.accessorySession.cancelCommands()
     }
     
     // FIDO Authetication
@@ -868,7 +868,7 @@ class U2FExtensions: NSObject {
             requestId[handle] = id
         }
 
-        if YubiKitManager.shared.keySession.sessionState != .open {
+        if YubiKitManager.shared.accessorySession.sessionState != .open {
             return
         }
         
@@ -881,7 +881,7 @@ class U2FExtensions: NSObject {
         
         setCurrentTabId()
         
-        guard let u2fservice = YubiKitManager.shared.keySession.u2fService else {
+        guard let u2fservice = YubiKitManager.shared.accessorySession.u2fService else {
             sendFIDOAuthenticationError(handle: handle, requestId: requestId, errorCode: U2FErrorCodes.other_error)
             return
         }
@@ -987,11 +987,11 @@ class U2FExtensions: NSObject {
         fidoSignHandles.remove(at: index)
         fidoSignRequests.removeValue(forKey: handle)
         requestId.removeValue(forKey: handle)
-        YubiKitManager.shared.keySession.cancelCommands()
+        YubiKitManager.shared.accessorySession.cancelCommands()
     }
     
     private func handleSessionStateChange() {
-        let sessionState = YubiKitManager.shared.keySession.sessionState
+        let sessionState = YubiKitManager.shared.accessorySession.sessionState
         if sessionState == .open { // The key session is ready to be used.
             insertKeyPopup.dismissWithType(dismissType: .flyDown)
             
@@ -1075,7 +1075,7 @@ extension U2FExtensions: TabContentScript {
             currentHandle = handle
             currentMessageType = U2FMessageType(rawValue: name) ?? U2FMessageType.None
             
-            if YubiKitManager.shared.keySession.sessionState != .open {
+            if YubiKitManager.shared.accessorySession.sessionState != .open {
                 presentInsertKeyModal()
             }
             
