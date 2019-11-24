@@ -51,9 +51,11 @@ open class UserAgent {
 
     public static func defaultUserAgent() -> String {
         assert(Thread.current.isMainThread, "This method must be called on the main thread.")
+        
+        let bsafes_user_agent = "; Bsafes-Browser"
 
         if let firefoxUA = UserAgent.cachedUserAgent(checkiOSVersion: true) {
-            return firefoxUA
+            return firefoxUA + bsafes_user_agent
         }
 
         let currentiOSVersion = UIDevice.current.systemVersion
@@ -67,7 +69,7 @@ open class UserAgent {
         let webKitVersionRegex = try? NSRegularExpression(pattern: "AppleWebKit/([^ ]+) ", options: [])
         guard let match = webKitVersionRegex?.firstMatch(in: userAgent, options: [], range: NSRange(location: 0, length: userAgent.count)) else {
             print("Error: Unable to determine WebKit version in UA.")
-            return userAgent     // Fall back to Safari's.
+            return userAgent + bsafes_user_agent     // Fall back to Safari's.
         }
 
         let webKitVersion = (userAgent as NSString).substring(with: match.range(at: 1))
@@ -76,7 +78,7 @@ open class UserAgent {
         let mobileRange = (userAgent as NSString).range(of: "Mobile/")
         if mobileRange.location == NSNotFound {
             print("Error: Unable to find Mobile section in UA.")
-            return userAgent     // Fall back to Safari's.
+            return userAgent + bsafes_user_agent     // Fall back to Safari's.
         }
 
         let mutableUA = NSMutableString(string: userAgent)
@@ -86,7 +88,7 @@ open class UserAgent {
 
         defaults.set(firefoxUA, forKey: "UserAgent")
 
-        return firefoxUA
+        return firefoxUA + bsafes_user_agent
     }
 
     public static func desktopUserAgent() -> String {
