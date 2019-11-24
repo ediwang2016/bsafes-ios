@@ -1693,6 +1693,11 @@ extension BrowserViewController: TopToolbarDelegate {
 }
 
 extension BrowserViewController: ToolbarDelegate {
+    
+    func addToReadList(title: String, url: URL) {
+        ReadList.add(title, url: url)
+    }
+    
     func tabToolbarDidPressBack(_ tabToolbar: ToolbarProtocol, button: UIButton) {
         tabManager.selectedTab?.goBack()
     }

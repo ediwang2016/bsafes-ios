@@ -21,6 +21,7 @@ public final class Domain: NSManagedObject, CRUD {
     @NSManaged public var shield_safeBrowsing: NSNumber?
 
     @NSManaged public var historyItems: NSSet?
+    @NSManaged public var readListItems: NSSet?
     @NSManaged public var bookmarks: NSSet?
     
     private var urlComponents: URLComponents? {

@@ -131,4 +131,16 @@ class HistoryTests: CoreDataTestCase {
         
         return History.first(where: predicate)!
     }
+    
+    @discardableResult
+    private func createAndWait(title: String = "New title", url: URL = URL(string: "https://example.com")!) -> ReadList {
+        backgroundSaveAndWaitForExpectation {
+            ReadList.add(title, url: url)
+        }
+        
+        let urlKeyPath = #keyPath(History.url)
+        let predicate = NSPredicate(format: "\(urlKeyPath) == %@", url.absoluteString)
+        
+        return ReadList.first(where: predicate)!
+    }
 }

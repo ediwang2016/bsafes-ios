@@ -51,7 +51,7 @@ class MenuViewController: UITableViewController {
     }
     
     private enum MenuButtons: Int, CaseIterable {
-        case settings, history, bookmarks, downloads, add, share
+        case settings, history, addToReadList, readList, bookmarks, downloads, add, share
         
         var title: String {
             switch self {
@@ -61,6 +61,8 @@ class MenuViewController: UITableViewController {
             case .add: return Strings.AddToMenuItem
             case .share: return Strings.ShareWithMenuItem
             case .downloads: return Strings.DownloadsMenuItem
+            case .readList: return Strings.ReadListMenuItem
+            case .addToReadList: return Strings.AddToReadListMenuItem
             }
         }
         
@@ -72,6 +74,8 @@ class MenuViewController: UITableViewController {
             case .add: return #imageLiteral(resourceName: "menu-add-bookmark").template
             case .share: return #imageLiteral(resourceName: "nav-share").template
             case .downloads: return #imageLiteral(resourceName: "menu-downloads").template
+            case .readList: return  #imageLiteral(resourceName: "nav-share").template
+            case .addToReadList: return  #imageLiteral(resourceName: "nav-share").template
             }
         }
     }
@@ -85,6 +89,8 @@ class MenuViewController: UITableViewController {
         // Don't show url buttons if there is no url to pick(like on home screen)
         var allWithoutUrlButtons = allButtons
         allWithoutUrlButtons.removeAll { $0 == .add || $0 == .share }
+        
+        allWithoutUrlButtons.removeAll { $0 == .addToReadList}
         
         guard let url = tab?.url, (!url.isLocal || url.isReaderModeURL) else {
             return allWithoutUrlButtons
@@ -150,11 +156,13 @@ class MenuViewController: UITableViewController {
         
         switch button {
         case .bookmarks: openBookmarks()
-        case .history: openHistory()
+        case .history: openHistory(isReadList: false)
         case .settings: openSettings()
         case .add: openAddBookmark()
         case .share: openShareSheet()
         case .downloads: openDownloads()
+        case .readList: openHistory(isReadList: true)
+        case .addToReadList: addToReadList()
         }
     }
     
@@ -230,6 +238,13 @@ class MenuViewController: UITableViewController {
         open(vc, doneButton: DoneButton(style: .done, position: .right))
     }
     
+    func addToReadList() {
+        dismissView()
+        if let tab = self.tab, let url = tab.url {
+            bvc.addToReadList(title: tab.title ?? "", url: url)
+        }
+    }
+    
     private func openAddBookmark() {
         guard let title = tab?.displayTitle, let url = tab?.url else { return }
         
@@ -243,8 +258,8 @@ class MenuViewController: UITableViewController {
 
     }
     
-    private func openHistory() {
-        let vc = HistoryViewController(isPrivateBrowsing: PrivateBrowsingManager.shared.isPrivateBrowsing)
+    private func openHistory(isReadList: Bool) {
+        let vc = HistoryViewController(isPrivateBrowsing: PrivateBrowsingManager.shared.isPrivateBrowsing, isReadList: isReadList)
         vc.toolbarUrlActionsDelegate = bvc
         
         open(vc, doneButton: DoneButton(style: .done, position: .right))

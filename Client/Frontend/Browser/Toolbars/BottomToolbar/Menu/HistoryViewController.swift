@@ -19,11 +19,13 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
   weak var toolbarUrlActionsDelegate: ToolbarUrlActionsDelegate?
   fileprivate lazy var emptyStateOverlayView: UIView = self.createEmptyStateOverview()
   var frc: NSFetchedResultsController<History>?
-  
+  var readList: NSFetchedResultsController<ReadList>?
+    let isReadList: Bool
     let isPrivateBrowsing: Bool
   
-  init(isPrivateBrowsing: Bool) {
+  init(isPrivateBrowsing: Bool, isReadList: Bool) {
     self.isPrivateBrowsing = isPrivateBrowsing
+    self.isReadList = isReadList
     
     super.init(nibName: nil, bundle: nil)
     
@@ -39,11 +41,17 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
   }
   
   override func viewDidLoad() {
-    frc = History.frc()
-    frc!.delegate = self
+    if isReadList {
+        readList = ReadList.frc()
+        readList!.delegate = self
+    } else {
+        frc = History.frc()
+        frc!.delegate = self
+    }
+    
     super.viewDidLoad()
-    self.tableView.accessibilityIdentifier = "History List"
-    title = Strings.HistoryScreenTitle
+    self.tableView.accessibilityIdentifier = isReadList ?  "Read List" : "History List"
+    title = isReadList ? Strings.ReadListScreenTitle : Strings.HistoryScreenTitle
     
     reloadData()
   }
@@ -62,14 +70,25 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
   }
   
   override func reloadData() {
-    guard let frc = frc else {
-      return
-    }
-    
-    do {
-      try frc.performFetch()
-    } catch let error as NSError {
-      print(error.description)
+    if isReadList {
+        guard let readList = readList else {
+            return
+        }
+        do {
+            try readList.performFetch()
+        } catch let error as NSError {
+            print(error.description)
+        }
+    } else {
+        guard let frc = frc else {
+            return
+        }
+        
+        do {
+            try frc.performFetch()
+        } catch let error as NSError {
+            print(error.description)
+        }
     }
     
     tableView.reloadData()
@@ -77,16 +96,30 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
   }
   
   fileprivate func updateEmptyPanelState() {
-    if frc?.fetchedObjects?.count == 0 {
-      if self.emptyStateOverlayView.superview == nil {
-        self.tableView.addSubview(self.emptyStateOverlayView)
-        self.emptyStateOverlayView.snp.makeConstraints { make -> Void in
-          make.edges.equalTo(self.tableView)
-          make.size.equalTo(self.view)
+    if isReadList {
+        if readList?.fetchedObjects?.count == 0 {
+            if self.emptyStateOverlayView.superview == nil {
+                self.tableView.addSubview(self.emptyStateOverlayView)
+                self.emptyStateOverlayView.snp.makeConstraints { make -> Void in
+                    make.edges.equalTo(self.tableView)
+                    make.size.equalTo(self.view)
+                }
+            }
+        } else {
+            self.emptyStateOverlayView.removeFromSuperview()
         }
-      }
     } else {
-      self.emptyStateOverlayView.removeFromSuperview()
+        if frc?.fetchedObjects?.count == 0 {
+          if self.emptyStateOverlayView.superview == nil {
+            self.tableView.addSubview(self.emptyStateOverlayView)
+            self.emptyStateOverlayView.snp.makeConstraints { make -> Void in
+              make.edges.equalTo(self.tableView)
+              make.size.equalTo(self.view)
+            }
+          }
+        } else {
+          self.emptyStateOverlayView.removeFromSuperview()
+        }
     }
   }
   
@@ -112,9 +145,9 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
       cell.addGestureRecognizer(lp)
     }
     
-    let site = frc!.object(at: indexPath)
-    cell.backgroundColor = UIColor.clear
-    cell.setLines(site.title, detailText: site.url)
+//    let site = frc!.object(at: indexPath)
+//    cell.backgroundColor = UIColor.clear
+//    cell.setLines(site.title, detailText: site.url)
     
     cell.imageView?.contentMode = .scaleAspectFit
     cell.imageView?.image = FaviconFetcher.defaultFavicon
@@ -123,43 +156,88 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
     cell.imageView?.layer.cornerRadius = 6
     cell.imageView?.layer.masksToBounds = true
     
-    cell.imageView?.setIconMO(site.domain?.favicon, forURL: URL(string: site.url ?? ""))
+//    cell.imageView?.setIconMO(site.domain?.favicon, forURL: URL(string: site.url ?? ""))
+    
+    if isReadList {
+        let site = readList!.object(at: indexPath)
+        cell.setLines(site.title, detailText: site.url)
+        cell.imageView?.setIconMO(site.domain?.favicon, forURL: URL(string: site.url ?? ""))
+    } else {
+        let site = frc!.object(at: indexPath)
+        cell.setLines(site.title, detailText: site.url)
+        cell.imageView?.setIconMO(site.domain?.favicon, forURL: URL(string: site.url ?? ""))
+    }
+    
   }
   
   func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-    let site = frc?.object(at: indexPath)
     
-    if let u = site?.url, let url = URL(string: u) {
-        dismiss(animated: true) {
-            self.toolbarUrlActionsDelegate?.select(url: url, visitType: .typed)
+    if isReadList {
+        let site = readList?.object(at: indexPath)
+        if let u = site?.url, let url = URL(string: u) {
+            dismiss(animated: true) {
+                self.toolbarUrlActionsDelegate?.select(url: url, visitType: .typed)
+            }
+        }
+    } else {
+        let site = frc?.object(at: indexPath)
+        
+        if let u = site?.url, let url = URL(string: u) {
+            dismiss(animated: true) {
+                self.toolbarUrlActionsDelegate?.select(url: url, visitType: .typed)
+            }
         }
     }
     tableView.deselectRow(at: indexPath, animated: true)
   }
     
     @objc private func longPressedCell(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began,
-            let cell = gesture.view as? UITableViewCell,
-            let indexPath = tableView.indexPath(for: cell),
-            let urlString = frc?.object(at: indexPath).url else {
-                return
+        if isReadList {
+            guard gesture.state == .began,
+                let cell = gesture.view as? UITableViewCell,
+                let indexPath = tableView.indexPath(for: cell),
+                let urlString = readList?.object(at: indexPath).url else {
+                    return
+            }
+            presentLongPressActions(gesture, urlString: urlString, isPrivateBrowsing: isPrivateBrowsing)
+        } else {
+            guard gesture.state == .began,
+                let cell = gesture.view as? UITableViewCell,
+                let indexPath = tableView.indexPath(for: cell),
+                let urlString = frc?.object(at: indexPath).url else {
+                    return
+            }
+            
+            presentLongPressActions(gesture, urlString: urlString, isPrivateBrowsing: isPrivateBrowsing)
         }
-        
-        presentLongPressActions(gesture, urlString: urlString, isPrivateBrowsing: isPrivateBrowsing)
     }
   
   func numberOfSections(in tableView: UITableView) -> Int {
-    return frc?.sections?.count ?? 0
+    if isReadList {
+        return readList?.sections?.count ?? 0
+    } else {
+        return frc?.sections?.count ?? 0
+    }
   }
   
   func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-    guard let sections = frc?.sections else { return nil }
-    return sections.indices ~= section ? sections[section].name : nil
+    if isReadList {
+        guard let sections = readList?.sections else { return nil }
+        return sections.indices ~= section ? sections[section].name : nil
+    } else {
+        guard let sections = frc?.sections else { return nil }
+        return sections.indices ~= section ? sections[section].name : nil
+    }
   }
   
   override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    guard let sections = frc?.sections else { return 0 }
-    return sections.indices ~= section ? sections[section].numberOfObjects : 0
+    if isReadList {
+        guard let sections = readList?.sections else { return 0 }
+        return sections.indices ~= section ? sections[section].numberOfObjects : 0
+    } else {
+        guard let sections = frc?.sections else { return 0 }
+        return sections.indices ~= section ? sections[section].numberOfObjects : 0
+    }
   }
   
   func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
@@ -167,10 +245,18 @@ class HistoryViewController: SiteTableViewController, ToolbarUrlActionsProtocol 
   }
   
   func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
-    if editingStyle == UITableViewCell.EditingStyle.delete {
-      if let obj = self.frc?.object(at: indexPath) {
-        obj.delete()
-      }
+    if isReadList {
+        if editingStyle == UITableViewCell.EditingStyle.delete {
+            if let obj = self.readList?.object(at: indexPath) {
+                obj.delete()
+            }
+        }
+    } else {
+        if editingStyle == UITableViewCell.EditingStyle.delete {
+            if let obj = self.frc?.object(at: indexPath) {
+                obj.delete()
+            }
+        }
     }
   }
 }
