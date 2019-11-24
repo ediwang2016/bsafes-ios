@@ -8,7 +8,7 @@ MOZ_BUNDLE_DISPLAY_NAME = Brave
 
 // Bundle Identifier
 MOZ_BUNDLE_ID = $(BASE_BUNDLE_ID).browser
-
+EXTENSION_BUNDLE_ID = $(BASE_BUNDLE_ID).bsafesExtension
 // Flag to indicate if we want to include the debug settings bundle or not
 INCLUDE_SETTINGS_BUNDLE = NO
 
