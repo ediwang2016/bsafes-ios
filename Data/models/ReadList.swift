@@ -68,6 +68,7 @@ public final class ReadList: NSManagedObject, WebsitePresentable, CRUD {
         if title != nil {
             let url = (defaults?.url(forKey: "pageUrl"))!
             self.add(title!, url: url)
+            defaults?.set(nil, forKey: "pageTitle")
         } else {
             print("eid_no")
         }
